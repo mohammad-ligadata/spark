@@ -1,0 +1,85 @@
+diff --git a/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala b/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala
+index a7f40c6bff0b..01a503db78dd 100644
+--- a/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala
++++ b/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala
+@@ -194,7 +194,7 @@ private[spark] object HiveUtils extends Logging {
+     //
+     // Here we enumerate all time `ConfVar`s and convert their values to numeric strings according
+     // to their output time units.
+-    Seq(
++    val commonTimeVars = Seq(
+       ConfVars.METASTORE_CLIENT_CONNECT_RETRY_DELAY -> TimeUnit.SECONDS,
+       ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT -> TimeUnit.SECONDS,
+       ConfVars.METASTORE_CLIENT_SOCKET_LIFETIME -> TimeUnit.SECONDS,
+@@ -207,8 +207,6 @@ private[spark] object HiveUtils extends Logging {
+       ConfVars.METASTORE_AGGREGATE_STATS_CACHE_MAX_READER_WAIT -> TimeUnit.MILLISECONDS,
+       ConfVars.HIVES_AUTO_PROGRESS_TIMEOUT -> TimeUnit.SECONDS,
+       ConfVars.HIVE_LOG_INCREMENTAL_PLAN_PROGRESS_INTERVAL -> TimeUnit.MILLISECONDS,
+-      ConfVars.HIVE_STATS_JDBC_TIMEOUT -> TimeUnit.SECONDS,
+-      ConfVars.HIVE_STATS_RETRIES_WAIT -> TimeUnit.MILLISECONDS,
+       ConfVars.HIVE_LOCK_SLEEP_BETWEEN_RETRIES -> TimeUnit.SECONDS,
+       ConfVars.HIVE_ZOOKEEPER_SESSION_TIMEOUT -> TimeUnit.MILLISECONDS,
+       ConfVars.HIVE_ZOOKEEPER_CONNECTION_BASESLEEPTIME -> TimeUnit.MILLISECONDS,
+@@ -236,7 +234,18 @@ private[spark] object HiveUtils extends Logging {
+       ConfVars.SPARK_RPC_CLIENT_HANDSHAKE_TIMEOUT -> TimeUnit.MILLISECONDS
+     ).map { case (confVar, unit) =>
+       confVar.varname -> HiveConf.getTimeVar(hadoopConf, confVar, unit).toString
+-    }.toMap
++    }
++
++    // The following configurations were removed by HIVE-12164(Hive 2.0)
++    val hardcodingTimeVars = Seq(
++      ("hive.stats.jdbc.timeout", "30s") -> TimeUnit.SECONDS,
++      ("hive.stats.retries.wait", "3000ms") -> TimeUnit.MILLISECONDS
++    ).map { case ((key, defaultValue), unit) =>
++      val value = hadoopConf.get(key, defaultValue)
++      key -> HiveConf.toTime(value, unit, unit).toString
++    }
++
++    (commonTimeVars ++ hardcodingTimeVars).toMap
+   }
+ 
+   /**
+diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/HiveUtilsSuite.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/HiveUtilsSuite.scala
+index 303dd70760a1..daf06645abc2 100644
+--- a/sql/hive/src/test/scala/org/apache/spark/sql/hive/HiveUtilsSuite.scala
++++ b/sql/hive/src/test/scala/org/apache/spark/sql/hive/HiveUtilsSuite.scala
+@@ -17,6 +17,7 @@
+ 
+ package org.apache.spark.sql.hive
+ 
++import org.apache.hadoop.conf.Configuration
+ import org.apache.hadoop.hive.conf.HiveConf.ConfVars
+ 
+ import org.apache.spark.SparkConf
+@@ -29,6 +30,12 @@ import org.apache.spark.util.ChildFirstURLClassLoader
+ 
+ class HiveUtilsSuite extends QueryTest with SQLTestUtils with TestHiveSingleton {
+ 
++  private def testFormatTimeVarsForHiveClient(key: String, value: String, expected: Long): Unit = {
++    val conf = new Configuration
++    conf.set(key, value)
++    assert(HiveUtils.formatTimeVarsForHiveClient(conf)(key) === expected.toString)
++  }
++
+   test("newTemporaryConfiguration overwrites listener configurations") {
+     Seq(true, false).foreach { useInMemoryDerby =>
+       val conf = HiveUtils.newTemporaryConfiguration(useInMemoryDerby)
+@@ -61,4 +68,17 @@ class HiveUtilsSuite extends QueryTest with SQLTestUtils with TestHiveSingleton
+       Thread.currentThread().setContextClassLoader(contextClassLoader)
+     }
+   }
++
++  test("SPARK-27349: Dealing with TimeVars removed in Hive 2.x") {
++    // Test default value
++    val defaultConf = new Configuration
++    assert(HiveUtils.formatTimeVarsForHiveClient(defaultConf)("hive.stats.jdbc.timeout") === "30")
++    assert(HiveUtils.formatTimeVarsForHiveClient(defaultConf)("hive.stats.retries.wait") === "3000")
++
++    testFormatTimeVarsForHiveClient("hive.stats.jdbc.timeout", "40s", 40)
++    testFormatTimeVarsForHiveClient("hive.stats.jdbc.timeout", "1d", 1 * 24 * 60 * 60)
++
++    testFormatTimeVarsForHiveClient("hive.stats.retries.wait", "4000ms", 4000)
++    testFormatTimeVarsForHiveClient("hive.stats.retries.wait", "1d", 1 * 24 * 60 * 60 * 1000)
++  }
+ }

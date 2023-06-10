@@ -1,0 +1,98 @@
+diff --git a/assembly/README b/assembly/README
+index d5dafab47741..1fd6d8858348 100644
+--- a/assembly/README
++++ b/assembly/README
+@@ -9,4 +9,4 @@ This module is off by default. To activate it specify the profile in the command
+ 
+ If you need to build an assembly for a different version of Hadoop the
+ hadoop-version system property needs to be set as in this example:
+-  -Dhadoop.version=2.7.3
++  -Dhadoop.version=2.7.4
+diff --git a/dev/deps/spark-deps-hadoop-2.7 b/dev/deps/spark-deps-hadoop-2.7
+index c2f5755ca992..ec7c304c9e36 100644
+--- a/dev/deps/spark-deps-hadoop-2.7
++++ b/dev/deps/spark-deps-hadoop-2.7
+@@ -64,21 +64,21 @@ gson-2.2.4.jar
+ guava-14.0.1.jar
+ guice-3.0.jar
+ guice-servlet-3.0.jar
+-hadoop-annotations-2.7.3.jar
+-hadoop-auth-2.7.3.jar
+-hadoop-client-2.7.3.jar
+-hadoop-common-2.7.3.jar
+-hadoop-hdfs-2.7.3.jar
+-hadoop-mapreduce-client-app-2.7.3.jar
+-hadoop-mapreduce-client-common-2.7.3.jar
+-hadoop-mapreduce-client-core-2.7.3.jar
+-hadoop-mapreduce-client-jobclient-2.7.3.jar
+-hadoop-mapreduce-client-shuffle-2.7.3.jar
+-hadoop-yarn-api-2.7.3.jar
+-hadoop-yarn-client-2.7.3.jar
+-hadoop-yarn-common-2.7.3.jar
+-hadoop-yarn-server-common-2.7.3.jar
+-hadoop-yarn-server-web-proxy-2.7.3.jar
++hadoop-annotations-2.7.4.jar
++hadoop-auth-2.7.4.jar
++hadoop-client-2.7.4.jar
++hadoop-common-2.7.4.jar
++hadoop-hdfs-2.7.4.jar
++hadoop-mapreduce-client-app-2.7.4.jar
++hadoop-mapreduce-client-common-2.7.4.jar
++hadoop-mapreduce-client-core-2.7.4.jar
++hadoop-mapreduce-client-jobclient-2.7.4.jar
++hadoop-mapreduce-client-shuffle-2.7.4.jar
++hadoop-yarn-api-2.7.4.jar
++hadoop-yarn-client-2.7.4.jar
++hadoop-yarn-common-2.7.4.jar
++hadoop-yarn-server-common-2.7.4.jar
++hadoop-yarn-server-web-proxy-2.7.4.jar
+ hk2-api-2.4.0-b34.jar
+ hk2-locator-2.4.0-b34.jar
+ hk2-utils-2.4.0-b34.jar
+@@ -117,6 +117,7 @@ jersey-guava-2.22.2.jar
+ jersey-media-jaxb-2.22.2.jar
+ jersey-server-2.22.2.jar
+ jetty-6.1.26.jar
++jetty-sslengine-6.1.26.jar
+ jetty-util-6.1.26.jar
+ jline-2.14.6.jar
+ joda-time-2.9.3.jar
+diff --git a/pom.xml b/pom.xml
+index 08a29d2d5231..93075e9b06a6 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -118,7 +118,7 @@
+     <sbt.project.name>spark</sbt.project.name>
+     <slf4j.version>1.7.16</slf4j.version>
+     <log4j.version>1.2.17</log4j.version>
+-    <hadoop.version>2.7.3</hadoop.version>
++    <hadoop.version>2.7.4</hadoop.version>
+     <protobuf.version>2.5.0</protobuf.version>
+     <yarn.version>${hadoop.version}</yarn.version>
+     <zookeeper.version>3.4.6</zookeeper.version>
+diff --git a/resource-managers/kubernetes/integration-tests/README.md b/resource-managers/kubernetes/integration-tests/README.md
+index 64f8e77597eb..73fc0581d64f 100644
+--- a/resource-managers/kubernetes/integration-tests/README.md
++++ b/resource-managers/kubernetes/integration-tests/README.md
+@@ -107,7 +107,7 @@ properties to Maven.  For example:
+ 
+     mvn integration-test -am -pl :spark-kubernetes-integration-tests_2.11 \
+                             -Pkubernetes -Pkubernetes-integration-tests \ 
+-                            -Phadoop-2.7 -Dhadoop.version=2.7.3 \
++                            -Phadoop-2.7 -Dhadoop.version=2.7.4 \
+                             -Dspark.kubernetes.test.sparkTgz=spark-3.0.0-SNAPSHOT-bin-example.tgz \
+                             -Dspark.kubernetes.test.imageTag=sometag \
+                             -Dspark.kubernetes.test.imageRepo=docker.io/somerepo \
+diff --git a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
+index f56ca8cb0855..ca98c30add16 100644
+--- a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
++++ b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
+@@ -65,7 +65,7 @@ private[hive] object IsolatedClientLoader extends Logging {
+           case e: RuntimeException if e.getMessage.contains("hadoop") =>
+             // If the error message contains hadoop, it is probably because the hadoop
+             // version cannot be resolved.
+-            val fallbackVersion = "2.7.3"
++            val fallbackVersion = "2.7.4"
+             logWarning(s"Failed to resolve Hadoop artifacts for the version $hadoopVersion. We " +
+               s"will change the hadoop version from $hadoopVersion to $fallbackVersion and try " +
+               "again. Hadoop classes will not be shared between Spark and Hive metastore client. " +

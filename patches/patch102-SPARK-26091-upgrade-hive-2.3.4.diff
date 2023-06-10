@@ -1,0 +1,65 @@
+diff --git a/docs/sql-data-sources-hive-tables.md b/docs/sql-data-sources-hive-tables.md
+index 687e6f8e0a7c..28e1a3962666 100644
+--- a/docs/sql-data-sources-hive-tables.md
++++ b/docs/sql-data-sources-hive-tables.md
+@@ -115,7 +115,7 @@ The following options can be used to configure the version of Hive that is used
+     <td><code>1.2.1</code></td>
+     <td>
+       Version of the Hive metastore. Available
+-      options are <code>0.12.0</code> through <code>2.3.3</code>.
++      options are <code>0.12.0</code> through <code>2.3.4</code>.
+     </td>
+   </tr>
+   <tr>
+diff --git a/docs/sql-migration-guide-hive-compatibility.md b/docs/sql-migration-guide-hive-compatibility.md
+index 94849418030e..dd7b06225714 100644
+--- a/docs/sql-migration-guide-hive-compatibility.md
++++ b/docs/sql-migration-guide-hive-compatibility.md
+@@ -10,7 +10,7 @@ displayTitle: Compatibility with Apache Hive
+ Spark SQL is designed to be compatible with the Hive Metastore, SerDes and UDFs.
+ Currently, Hive SerDes and UDFs are based on Hive 1.2.1,
+ and Spark SQL can be connected to different versions of Hive Metastore
+-(from 0.12.0 to 2.3.3. Also see [Interacting with Different Versions of Hive Metastore](sql-data-sources-hive-tables.html#interacting-with-different-versions-of-hive-metastore)).
++(from 0.12.0 to 2.3.4. Also see [Interacting with Different Versions of Hive Metastore](sql-data-sources-hive-tables.html#interacting-with-different-versions-of-hive-metastore)).
+ 
+ #### Deploying in Existing Hive Warehouses
+ 
+diff --git a/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala b/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala
+index 74f21532b22d..66067704195d 100644
+--- a/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala
++++ b/sql/hive/src/main/scala/org/apache/spark/sql/hive/HiveUtils.scala
+@@ -62,7 +62,7 @@ private[spark] object HiveUtils extends Logging {
+ 
+   val HIVE_METASTORE_VERSION = buildConf("spark.sql.hive.metastore.version")
+     .doc("Version of the Hive metastore. Available options are " +
+-        s"<code>0.12.0</code> through <code>2.3.3</code>.")
++        s"<code>0.12.0</code> through <code>2.3.4</code>.")
+     .stringConf
+     .createWithDefault(builtinHiveVersion)
+ 
+diff --git a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
+index c1d8fe53a9e8..f56ca8cb0855 100644
+--- a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
++++ b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
+@@ -99,7 +99,7 @@ private[hive] object IsolatedClientLoader extends Logging {
+     case "2.0" | "2.0.0" | "2.0.1" => hive.v2_0
+     case "2.1" | "2.1.0" | "2.1.1" => hive.v2_1
+     case "2.2" | "2.2.0" => hive.v2_2
+-    case "2.3" | "2.3.0" | "2.3.1" | "2.3.2" | "2.3.3" => hive.v2_3
++    case "2.3" | "2.3.0" | "2.3.1" | "2.3.2" | "2.3.3" | "2.3.4" => hive.v2_3
+     case version =>
+       throw new UnsupportedOperationException(s"Unsupported Hive Metastore version ($version). " +
+         s"Please set ${HiveUtils.HIVE_METASTORE_VERSION.key} with a valid version.")
+diff --git a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/package.scala b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/package.scala
+index 25e9886fa657..e4cf7299d2af 100644
+--- a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/package.scala
++++ b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/package.scala
+@@ -75,7 +75,7 @@ package object client {
+       exclusions = Seq("org.apache.curator:*",
+         "org.pentaho:pentaho-aggdesigner-algorithm"))
+ 
+-    case object v2_3 extends HiveVersion("2.3.3",
++    case object v2_3 extends HiveVersion("2.3.4",
+       exclusions = Seq("org.apache.curator:*",
+         "org.pentaho:pentaho-aggdesigner-algorithm"))
+ 

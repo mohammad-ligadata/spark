@@ -259,43 +259,10 @@ index 30592a3f8542..9b9af79354c2 100644
 +    IndexedSeq("0.12", "0.13", "0.14", "1.0", "1.1", "1.2", "2.0", "2.1", "2.2", "2.3", "3.1")
  }
 diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala
-index 7c66ff699f..f9b6422d82 100644
+index 7c66ff699f..06f3c400da 100644
 --- a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala
 +++ b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala
-@@ -38,7 +38,7 @@ import org.apache.spark.sql.hive.{HiveExternalCatalog, HiveUtils}
- import org.apache.spark.sql.hive.test.TestHiveVersion
- import org.apache.spark.sql.types.IntegerType
- import org.apache.spark.sql.types.StructType
--import org.apache.spark.tags.{ExtendedHiveTest, SlowHiveTest}
-+import org.apache.spark.tags.ExtendedHiveTest
- import org.apache.spark.util.{MutableURLClassLoader, Utils}
- 
- /**
-@@ -48,7 +48,6 @@ import org.apache.spark.util.{MutableURLClassLoader, Utils}
-  * is not fully tested.
-  */
- // TODO: Refactor this to `HiveClientSuite` and make it a subclass of `HiveVersionSuite`
--@SlowHiveTest
- @ExtendedHiveTest
- class VersionsSuite extends SparkFunSuite with Logging {
- 
-@@ -56,15 +55,6 @@ class VersionsSuite extends SparkFunSuite with Logging {
- 
-   import HiveClientBuilder.buildClient
- 
--  /**
--   * Creates a temporary directory, which is then passed to `f` and will be deleted after `f`
--   * returns.
--   */
--  protected def withTempDir(f: File => Unit): Unit = {
--    val dir = Utils.createTempDir().getCanonicalFile
--    try f(dir) finally Utils.deleteRecursively(dir)
--  }
--
-   /**
-    * Drops table `tableName` after calling `f`.
-    */
-@@ -113,7 +103,7 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -113,7 +113,7 @@ class VersionsSuite extends SparkFunSuite with Logging {
    }
  
    private val versions =
@@ -304,7 +271,7 @@ index 7c66ff699f..f9b6422d82 100644
  
    private var client: HiveClient = null
  
-@@ -128,10 +118,15 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -128,10 +128,15 @@ class VersionsSuite extends SparkFunSuite with Logging {
        // Hive changed the default of datanucleus.schema.autoCreateAll from true to false and
        // hive.metastore.schema.verification from false to true since 2.0
        // For details, see the JIRA HIVE-6113 and HIVE-12463
@@ -321,7 +288,7 @@ index 7c66ff699f..f9b6422d82 100644
        client = buildClient(version, hadoopConf, HiveUtils.formatTimeVarsForHiveClient(hadoopConf))
        if (versionSpark != null) versionSpark.reset()
        versionSpark = TestHiveVersion(client)
-@@ -328,7 +323,20 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -328,7 +333,20 @@ class VersionsSuite extends SparkFunSuite with Logging {
        properties = Map.empty)
  
      test(s"$version: sql create partitioned table") {
@@ -343,77 +310,22 @@ index 7c66ff699f..f9b6422d82 100644
      }
  
      val testPartitionCount = 2
-@@ -566,19 +574,11 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -566,9 +584,12 @@ class VersionsSuite extends SparkFunSuite with Logging {
      }
  
      test(s"$version: sql create index and reset") {
 -      client.runSqlHive("CREATE TABLE indexed_table (key INT)")
 -      client.runSqlHive("CREATE INDEX index_1 ON TABLE indexed_table(key) " +
 -        "as 'COMPACT' WITH DEFERRED REBUILD")
--    }
--
--    test(s"$version: sql read hive materialized view") {
--      // HIVE-14249 Since Hive 2.3.0, materialized view is supported.
--      // But skip Hive 3.1 because of SPARK-27074.
--      if (version == "2.3") {
--        client.runSqlHive("CREATE TABLE materialized_view_tbl (c1 INT)")
--        client.runSqlHive("CREATE MATERIALIZED VIEW mv1 AS SELECT * FROM materialized_view_tbl")
--        val e = intercept[AnalysisException](versionSpark.table("mv1").collect()).getMessage
--        assert(e.contains("Hive materialized view is not supported"))
 +      // HIVE-18448 Since Hive 3.0, INDEX is not supported.
 +      if (version != "3.1") {
 +        client.runSqlHive("CREATE TABLE indexed_table (key INT)")
 +        client.runSqlHive("CREATE INDEX index_1 ON TABLE indexed_table(key) " +
 +          "as 'COMPACT' WITH DEFERRED REBUILD")
-       }
++      }
      }
  
-@@ -807,22 +807,22 @@ class VersionsSuite extends SparkFunSuite with Logging {
-       // TODO: add the other logical types. For details, see the link:
-       // https://avro.apache.org/docs/1.8.1/spec.html#Logical+Types
-       val avroSchema =
--        """{
--          |  "name": "test_record",
--          |  "type": "record",
--          |  "fields": [ {
--          |    "name": "f0",
--          |    "type": [
--          |      "null",
--          |      {
--          |        "precision": 38,
--          |        "scale": 2,
--          |        "type": "bytes",
--          |        "logicalType": "decimal"
--          |      }
--          |    ]
--          |  } ]
--          |}
-+      """{
-+        |  "name": "test_record",
-+        |  "type": "record",
-+        |  "fields": [ {
-+        |    "name": "f0",
-+        |    "type": [
-+        |      "null",
-+        |      {
-+        |        "precision": 38,
-+        |        "scale": 2,
-+        |        "type": "bytes",
-+        |        "logicalType": "decimal"
-+        |      }
-+        |    ]
-+        |  } ]
-+        |}
-         """.stripMargin
- 
-       Seq(true, false).foreach { isPartitioned =>
-@@ -980,4 +980,4 @@ class VersionsSuite extends SparkFunSuite with Logging {
-     }
-     // TODO: add more tests.
-   }
--}
-+}
-\ No newline at end of file
+     test(s"$version: sql read hive materialized view") {
 
 diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala
 index a57dd313ac..73626cb59e 100644

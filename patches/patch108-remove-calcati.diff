@@ -33,48 +33,48 @@ index b707c436983f..df416181a1c1 100644
  Copyright 1999-2017 The Apache Software Foundation
  
 diff --git a/dev/deps/spark-deps-hadoop-2.7 b/dev/deps/spark-deps-hadoop-2.7
-index d53039fad179..53267ea0e36c 100644
+index aa8650e..5404f93 100644
 --- a/dev/deps/spark-deps-hadoop-2.7
 +++ b/dev/deps/spark-deps-hadoop-2.7
 @@ -24,9 +24,6 @@ avro-mapred-1.8.2-hadoop2.jar
  bonecp-0.8.0.RELEASE.jar
- breeze-macros_2.12-0.13.2.jar
- breeze_2.12-0.13.2.jar
+ breeze-macros_2.11-0.13.2.jar
+ breeze_2.11-0.13.2.jar
 -calcite-avatica-1.2.0-incubating.jar
 -calcite-core-1.2.0-incubating.jar
 -calcite-linq4j-1.2.0-incubating.jar
  chill-java-0.9.3.jar
- chill_2.12-0.9.3.jar
- commons-beanutils-1.7.0.jar
-@@ -57,7 +54,6 @@ datanucleus-api-jdo-3.2.6.jar
+ chill_2.11-0.9.3.jar
+ commons-beanutils-1.9.4.jar
+@@ -56,7 +53,6 @@ datanucleus-api-jdo-3.2.6.jar
  datanucleus-core-3.2.10.jar
  datanucleus-rdbms-3.2.9.jar
  derby-10.12.1.1.jar
 -eigenbase-properties-1.1.5.jar
- flatbuffers-java-1.9.0.jar
- generex-1.0.1.jar
+ flatbuffers-1.2.0-3f79e055.jar
+ generex-1.0.2.jar
  gson-2.2.4.jar
 diff --git a/dev/deps/spark-deps-hadoop-3.1 b/dev/deps/spark-deps-hadoop-3.1
-index d1a6b274df8c..367bd45dd367 100644
+index a792ce9..b4db863 100644
 --- a/dev/deps/spark-deps-hadoop-3.1
 +++ b/dev/deps/spark-deps-hadoop-3.1
 @@ -22,9 +22,6 @@ avro-mapred-1.8.2-hadoop2.jar
  bonecp-0.8.0.RELEASE.jar
- breeze-macros_2.12-0.13.2.jar
- breeze_2.12-0.13.2.jar
+ breeze-macros_2.11-0.13.2.jar
+ breeze_2.11-0.13.2.jar
 -calcite-avatica-1.2.0-incubating.jar
 -calcite-core-1.2.0-incubating.jar
 -calcite-linq4j-1.2.0-incubating.jar
  chill-java-0.9.3.jar
- chill_2.12-0.9.3.jar
- commons-beanutils-1.9.3.jar
+ chill_2.11-0.9.3.jar
+ commons-beanutils-1.9.4.jar
 @@ -56,7 +53,6 @@ datanucleus-rdbms-3.2.9.jar
  derby-10.12.1.1.jar
  dnsjava-2.1.7.jar
  ehcache-3.3.1.jar
 -eigenbase-properties-1.1.5.jar
- flatbuffers-java-1.9.0.jar
- generex-1.0.1.jar
+ flatbuffers-1.2.0-3f79e055.jar
+ generex-1.0.2.jar
  geronimo-jcache_1.0_spec-1.0-alpha-1.jar
 diff --git a/pom.xml b/pom.xml
 index ec870d3d1d1a..8014bec203b3 100644

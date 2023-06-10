@@ -246,52 +246,7 @@ index 078968ed0145..4ddba500cdf6 100644
  
      // Ensure all the supported versions are considered here.
      assert(hiveVersionsUsingNewExternalTempPath ++ hiveVersionsUsingOldExternalTempPath ==
-diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala
-index 7a325bf26b4c..f3d8c2ad440f 100644
---- a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala
-+++ b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala
-@@ -19,12 +19,16 @@ package org.apache.spark.sql.hive.client
- 
- import org.apache.hadoop.conf.Configuration
- import org.apache.hadoop.hive.conf.HiveConf
-+import org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-+import org.apache.hadoop.hive.serde2.`lazy`.LazySimpleSerDe
-+import org.apache.hadoop.mapred.TextInputFormat
- import org.scalatest.BeforeAndAfterAll
- 
-+import org.apache.spark.sql.catalyst.TableIdentifier
- import org.apache.spark.sql.catalyst.catalog._
- import org.apache.spark.sql.catalyst.dsl.expressions._
- import org.apache.spark.sql.catalyst.expressions._
--import org.apache.spark.sql.types.{BooleanType, IntegerType, LongType}
-+import org.apache.spark.sql.types.{BooleanType, IntegerType, LongType, StructType}
- 
- // TODO: Refactor this to `HivePartitionFilteringSuite`
- class HiveClientSuite(version: String)
-@@ -46,7 +50,22 @@ class HiveClientSuite(version: String)
-     val hadoopConf = new Configuration()
-     hadoopConf.setBoolean(tryDirectSqlKey, tryDirectSql)
-     val client = buildClient(hadoopConf)
--    client.runSqlHive("CREATE TABLE test (value INT) PARTITIONED BY (ds INT, h INT, chunk STRING)")
-+    val tableSchema =
-+      new StructType().add("value", "int").add("ds", "int").add("h", "int").add("chunk", "string")
-+    val table = CatalogTable(
-+      identifier = TableIdentifier("test", Some("default")),
-+      tableType = CatalogTableType.MANAGED,
-+      schema = tableSchema,
-+      partitionColumnNames = Seq("ds", "h", "chunk"),
-+      storage = CatalogStorageFormat(
-+        locationUri = None,
-+        inputFormat = Some(classOf[TextInputFormat].getName),
-+        outputFormat = Some(classOf[HiveIgnoreKeyTextOutputFormat[_, _]].getName),
-+        serde = Some(classOf[LazySimpleSerDe].getName()),
-+        compressed = false,
-+        properties = Map.empty
-+      ))
-+    client.createTable(table, ignoreIfExists = false)
- 
-     val partitions =
-       for {
+
 diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientVersions.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientVersions.scala
 index 30592a3f8542..9b9af79354c2 100644
 --- a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientVersions.scala
@@ -303,32 +258,44 @@ index 30592a3f8542..9b9af79354c2 100644
 -    IndexedSeq("0.12", "0.13", "0.14", "1.0", "1.1", "1.2", "2.0", "2.1", "2.2", "2.3")
 +    IndexedSeq("0.12", "0.13", "0.14", "1.0", "1.1", "1.2", "2.0", "2.1", "2.2", "2.3", "3.1")
  }
-diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveVersionSuite.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveVersionSuite.scala
-index e5963d03f6b5..a45ad1f30042 100644
---- a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveVersionSuite.scala
-+++ b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveVersionSuite.scala
-@@ -34,10 +34,15 @@ private[client] abstract class HiveVersionSuite(version: String) extends SparkFu
-     // Hive changed the default of datanucleus.schema.autoCreateAll from true to false and
-     // hive.metastore.schema.verification from false to true since 2.0
-     // For details, see the JIRA HIVE-6113 and HIVE-12463
--    if (version == "2.0" || version == "2.1" || version == "2.2" || version == "2.3") {
-+    if (version == "2.0" || version == "2.1" || version == "2.2" || version == "2.3" ||
-+        version == "3.1") {
-       hadoopConf.set("datanucleus.schema.autoCreateAll", "true")
-       hadoopConf.set("hive.metastore.schema.verification", "false")
-     }
-+    // Since Hive 3.0, HIVE-19310 skipped `ensureDbInit` if `hive.in.test=false`.
-+    if (version == "3.1") {
-+      hadoopConf.set("hive.in.test", "true")
-+    }
-     HiveClientBuilder.buildClient(
-       version,
-       hadoopConf,
 diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala
-index 218bd18e5dc9..b323871630d6 100644
+index 7c66ff699f..f9b6422d82 100644
 --- a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala
 +++ b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/VersionsSuite.scala
-@@ -103,7 +103,7 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -38,7 +38,7 @@ import org.apache.spark.sql.hive.{HiveExternalCatalog, HiveUtils}
+ import org.apache.spark.sql.hive.test.TestHiveVersion
+ import org.apache.spark.sql.types.IntegerType
+ import org.apache.spark.sql.types.StructType
+-import org.apache.spark.tags.{ExtendedHiveTest, SlowHiveTest}
++import org.apache.spark.tags.ExtendedHiveTest
+ import org.apache.spark.util.{MutableURLClassLoader, Utils}
+ 
+ /**
+@@ -48,7 +48,6 @@ import org.apache.spark.util.{MutableURLClassLoader, Utils}
+  * is not fully tested.
+  */
+ // TODO: Refactor this to `HiveClientSuite` and make it a subclass of `HiveVersionSuite`
+-@SlowHiveTest
+ @ExtendedHiveTest
+ class VersionsSuite extends SparkFunSuite with Logging {
+ 
+@@ -56,15 +55,6 @@ class VersionsSuite extends SparkFunSuite with Logging {
+ 
+   import HiveClientBuilder.buildClient
+ 
+-  /**
+-   * Creates a temporary directory, which is then passed to `f` and will be deleted after `f`
+-   * returns.
+-   */
+-  protected def withTempDir(f: File => Unit): Unit = {
+-    val dir = Utils.createTempDir().getCanonicalFile
+-    try f(dir) finally Utils.deleteRecursively(dir)
+-  }
+-
+   /**
+    * Drops table `tableName` after calling `f`.
+    */
+@@ -113,7 +103,7 @@ class VersionsSuite extends SparkFunSuite with Logging {
    }
  
    private val versions =
@@ -337,13 +304,13 @@ index 218bd18e5dc9..b323871630d6 100644
  
    private var client: HiveClient = null
  
-@@ -118,10 +118,15 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -128,10 +118,15 @@ class VersionsSuite extends SparkFunSuite with Logging {
        // Hive changed the default of datanucleus.schema.autoCreateAll from true to false and
        // hive.metastore.schema.verification from false to true since 2.0
        // For details, see the JIRA HIVE-6113 and HIVE-12463
 -      if (version == "2.0" || version == "2.1" || version == "2.2" || version == "2.3") {
 +      if (version == "2.0" || version == "2.1" || version == "2.2" || version == "2.3" ||
-+          version == "3.1") {
++        version == "3.1") {
          hadoopConf.set("datanucleus.schema.autoCreateAll", "true")
          hadoopConf.set("hive.metastore.schema.verification", "false")
        }
@@ -354,7 +321,7 @@ index 218bd18e5dc9..b323871630d6 100644
        client = buildClient(version, hadoopConf, HiveUtils.formatTimeVarsForHiveClient(hadoopConf))
        if (versionSpark != null) versionSpark.reset()
        versionSpark = TestHiveVersion(client)
-@@ -318,7 +323,20 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -328,7 +323,20 @@ class VersionsSuite extends SparkFunSuite with Logging {
        properties = Map.empty)
  
      test(s"$version: sql create partitioned table") {
@@ -376,19 +343,219 @@ index 218bd18e5dc9..b323871630d6 100644
      }
  
      val testPartitionCount = 2
-@@ -556,9 +574,12 @@ class VersionsSuite extends SparkFunSuite with Logging {
+@@ -566,19 +574,11 @@ class VersionsSuite extends SparkFunSuite with Logging {
      }
  
      test(s"$version: sql create index and reset") {
 -      client.runSqlHive("CREATE TABLE indexed_table (key INT)")
 -      client.runSqlHive("CREATE INDEX index_1 ON TABLE indexed_table(key) " +
 -        "as 'COMPACT' WITH DEFERRED REBUILD")
+-    }
+-
+-    test(s"$version: sql read hive materialized view") {
+-      // HIVE-14249 Since Hive 2.3.0, materialized view is supported.
+-      // But skip Hive 3.1 because of SPARK-27074.
+-      if (version == "2.3") {
+-        client.runSqlHive("CREATE TABLE materialized_view_tbl (c1 INT)")
+-        client.runSqlHive("CREATE MATERIALIZED VIEW mv1 AS SELECT * FROM materialized_view_tbl")
+-        val e = intercept[AnalysisException](versionSpark.table("mv1").collect()).getMessage
+-        assert(e.contains("Hive materialized view is not supported"))
 +      // HIVE-18448 Since Hive 3.0, INDEX is not supported.
 +      if (version != "3.1") {
 +        client.runSqlHive("CREATE TABLE indexed_table (key INT)")
 +        client.runSqlHive("CREATE INDEX index_1 ON TABLE indexed_table(key) " +
 +          "as 'COMPACT' WITH DEFERRED REBUILD")
-+      }
+       }
      }
  
-     ///////////////////////////////////////////////////////////////////////////
+@@ -807,22 +807,22 @@ class VersionsSuite extends SparkFunSuite with Logging {
+       // TODO: add the other logical types. For details, see the link:
+       // https://avro.apache.org/docs/1.8.1/spec.html#Logical+Types
+       val avroSchema =
+-        """{
+-          |  "name": "test_record",
+-          |  "type": "record",
+-          |  "fields": [ {
+-          |    "name": "f0",
+-          |    "type": [
+-          |      "null",
+-          |      {
+-          |        "precision": 38,
+-          |        "scale": 2,
+-          |        "type": "bytes",
+-          |        "logicalType": "decimal"
+-          |      }
+-          |    ]
+-          |  } ]
+-          |}
++      """{
++        |  "name": "test_record",
++        |  "type": "record",
++        |  "fields": [ {
++        |    "name": "f0",
++        |    "type": [
++        |      "null",
++        |      {
++        |        "precision": 38,
++        |        "scale": 2,
++        |        "type": "bytes",
++        |        "logicalType": "decimal"
++        |      }
++        |    ]
++        |  } ]
++        |}
+         """.stripMargin
+ 
+       Seq(true, false).foreach { isPartitioned =>
+@@ -980,4 +980,4 @@ class VersionsSuite extends SparkFunSuite with Logging {
+     }
+     // TODO: add more tests.
+   }
+-}
++}
+\ No newline at end of file
+
+diff --git a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala
+index a57dd313ac..73626cb59e 100644
+--- a/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala
++++ b/sql/hive/src/test/scala/org/apache/spark/sql/hive/client/HiveClientSuite.scala
+@@ -19,16 +19,20 @@ package org.apache.spark.sql.hive.client
+ 
+ import org.apache.hadoop.conf.Configuration
+ import org.apache.hadoop.hive.conf.HiveConf
++import org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
++import org.apache.hadoop.hive.serde2.`lazy`.LazySimpleSerDe
++import org.apache.hadoop.mapred.TextInputFormat
+ import org.scalatest.BeforeAndAfterAll
+ 
++import org.apache.spark.sql.catalyst.TableIdentifier
+ import org.apache.spark.sql.catalyst.catalog._
+ import org.apache.spark.sql.catalyst.dsl.expressions._
+ import org.apache.spark.sql.catalyst.expressions._
+-import org.apache.spark.sql.types.{BooleanType, IntegerType, LongType}
++import org.apache.spark.sql.types.{BooleanType, IntegerType, LongType, StructType}
+ 
+ // TODO: Refactor this to `HivePartitionFilteringSuite`
+ class HiveClientSuite(version: String)
+-    extends HiveVersionSuite(version) with BeforeAndAfterAll {
++  extends HiveVersionSuite(version) with BeforeAndAfterAll {
+ 
+   private val tryDirectSqlKey = HiveConf.ConfVars.METASTORE_TRY_DIRECT_SQL.varname
+ 
+@@ -45,10 +49,23 @@ class HiveClientSuite(version: String)
+ 
+     val hadoopConf = new Configuration()
+     hadoopConf.setBoolean(tryDirectSqlKey, tryDirectSql)
+-    hadoopConf.set("hive.metastore.warehouse.dir", Utils.createTempDir().toURI().toString())
+-    hadoopConf.set("hive.metastore.warehouse.dir", Utils.createTempDir().toURI().toString())
+     val client = buildClient(hadoopConf)
+-    client.runSqlHive("CREATE TABLE test (value INT) PARTITIONED BY (ds INT, h INT, chunk STRING)")
++    val tableSchema =
++      new StructType().add("value", "int").add("ds", "int").add("h", "int").add("chunk", "string")
++    val table = CatalogTable(
++      identifier = TableIdentifier("test", Some("default")),
++      tableType = CatalogTableType.MANAGED,
++      schema = tableSchema,
++      partitionColumnNames = Seq("ds", "h", "chunk"),
++      storage = CatalogStorageFormat(
++        locationUri = None,
++        inputFormat = Some(classOf[TextInputFormat].getName),
++        outputFormat = Some(classOf[HiveIgnoreKeyTextOutputFormat[_, _]].getName),
++        serde = Some(classOf[LazySimpleSerDe].getName()),
++        compressed = false,
++        properties = Map.empty
++      ))
++    client.createTable(table, ignoreIfExists = false)
+ 
+     val partitions =
+       for {
+@@ -69,7 +86,7 @@ class HiveClientSuite(version: String)
+ 
+   private def attr(name: String): Attribute = {
+     client.getTable("default", "test").partitionSchema.fields
+-        .find(field => field.name.equals(name)) match {
++      .find(field => field.name.equals(name)) match {
+       case Some(field) => AttributeReference(field.name, field.dataType)()
+       case None =>
+         fail(s"Illegal name of partition attribute: $name")
+@@ -234,7 +251,7 @@ class HiveClientSuite(version: String)
+     val day1 = (20170101 to 20170101, 2 to 4, Seq("aa", "ab", "ba", "bb"))
+     val day2 = (20170102 to 20170102, 0 to 1, Seq("aa", "ab", "ba", "bb"))
+     testMetastorePartitionFiltering((attr("ds") === 20170101 && attr("h") >= 2) ||
+-        (attr("ds") === 20170102 && attr("h") < 2), day1 :: day2 :: Nil)
++      (attr("ds") === 20170102 && attr("h") < 2), day1 :: day2 :: Nil)
+   }
+ 
+   test("getPartitionsByFilter: (ds=20170101 and h>=2) or (ds=20170102 and h<(1+1))") {
+@@ -242,15 +259,15 @@ class HiveClientSuite(version: String)
+     // Day 2 should include all hours because we can't build a filter for h<(7+1)
+     val day2 = (20170102 to 20170102, 0 to 4, Seq("aa", "ab", "ba", "bb"))
+     testMetastorePartitionFiltering((attr("ds") === 20170101 && attr("h") >= 2) ||
+-        (attr("ds") === 20170102 && attr("h") < (Literal(1) + 1)), day1 :: day2 :: Nil)
++      (attr("ds") === 20170102 && attr("h") < (Literal(1) + 1)), day1 :: day2 :: Nil)
+   }
+ 
+   test("getPartitionsByFilter: " +
+-      "chunk in ('ab', 'ba') and ((ds=20170101 and h>=2) or (ds=20170102 and h<2))") {
++    "chunk in ('ab', 'ba') and ((ds=20170101 and h>=2) or (ds=20170102 and h<2))") {
+     val day1 = (20170101 to 20170101, 2 to 4, Seq("ab", "ba"))
+     val day2 = (20170102 to 20170102, 0 to 1, Seq("ab", "ba"))
+     testMetastorePartitionFiltering(attr("chunk").in("ab", "ba") &&
+-        ((attr("ds") === 20170101 && attr("h") >= 2) || (attr("ds") === 20170102 && attr("h") < 2)),
++      ((attr("ds") === 20170101 && attr("h") >= 2) || (attr("ds") === 20170102 && attr("h") < 2)),
+       day1 :: day2 :: Nil)
+   }
+ 
+@@ -259,10 +276,10 @@ class HiveClientSuite(version: String)
+   }
+ 
+   private def testMetastorePartitionFiltering(
+-      filterExpr: Expression,
+-      expectedDs: Seq[Int],
+-      expectedH: Seq[Int],
+-      expectedChunks: Seq[String]): Unit = {
++                                               filterExpr: Expression,
++                                               expectedDs: Seq[Int],
++                                               expectedH: Seq[Int],
++                                               expectedChunks: Seq[String]): Unit = {
+     testMetastorePartitionFiltering(
+       filterExpr,
+       (expectedDs, expectedH, expectedChunks) :: Nil,
+@@ -270,11 +287,11 @@ class HiveClientSuite(version: String)
+   }
+ 
+   private def testMetastorePartitionFiltering(
+-      filterExpr: Expression,
+-      expectedDs: Seq[Int],
+-      expectedH: Seq[Int],
+-      expectedChunks: Seq[String],
+-      transform: Expression => Expression): Unit = {
++                                               filterExpr: Expression,
++                                               expectedDs: Seq[Int],
++                                               expectedH: Seq[Int],
++                                               expectedChunks: Seq[String],
++                                               transform: Expression => Expression): Unit = {
+     testMetastorePartitionFiltering(
+       filterExpr,
+       (expectedDs, expectedH, expectedChunks) :: Nil,
+@@ -282,15 +299,15 @@ class HiveClientSuite(version: String)
+   }
+ 
+   private def testMetastorePartitionFiltering(
+-      filterExpr: Expression,
+-      expectedPartitionCubes: Seq[(Seq[Int], Seq[Int], Seq[String])]): Unit = {
++                                               filterExpr: Expression,
++                                               expectedPartitionCubes: Seq[(Seq[Int], Seq[Int], Seq[String])]): Unit = {
+     testMetastorePartitionFiltering(filterExpr, expectedPartitionCubes, identity)
+   }
+ 
+   private def testMetastorePartitionFiltering(
+-      filterExpr: Expression,
+-      expectedPartitionCubes: Seq[(Seq[Int], Seq[Int], Seq[String])],
+-      transform: Expression => Expression): Unit = {
++                                               filterExpr: Expression,
++                                               expectedPartitionCubes: Seq[(Seq[Int], Seq[Int], Seq[String])],
++                                               transform: Expression => Expression): Unit = {
+     val filteredPartitions = client.getPartitionsByFilter(client.getTable("default", "test"),
+       Seq(
+         transform(filterExpr)

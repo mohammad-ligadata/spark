@@ -1,0 +1,609 @@
+diff --git a/dev/appveyor-install-dependencies.ps1 b/dev/appveyor-install-dependencies.ps1
+index 8a04b621f8ce..c91882851847 100644
+--- a/dev/appveyor-install-dependencies.ps1
++++ b/dev/appveyor-install-dependencies.ps1
+@@ -95,7 +95,8 @@ $env:MAVEN_OPTS = "-Xmx2g -XX:ReservedCodeCacheSize=512m"
+ Pop-Location
+ 
+ # ========================== Hadoop bin package
+-$hadoopVer = "2.6.4"
++# This must match the version at https://github.com/steveloughran/winutils/tree/master/hadoop-2.7.1
++$hadoopVer = "2.7.1"
+ $hadoopPath = "$tools\hadoop"
+ if (!(Test-Path $hadoopPath)) {
+     New-Item -ItemType Directory -Force -Path $hadoopPath | Out-Null
+diff --git a/dev/create-release/release-build.sh b/dev/create-release/release-build.sh
+index cce5f8b6975c..89593cfa0107 100755
+--- a/dev/create-release/release-build.sh
++++ b/dev/create-release/release-build.sh
+@@ -191,9 +191,19 @@ if [[ "$1" == "package" ]]; then
+   make_binary_release() {
+     NAME=$1
+     FLAGS="$MVN_EXTRA_OPTS -B $BASE_RELEASE_PROFILES $2"
++    # BUILD_PACKAGE can be "withpip", "withr", or both as "withpip,withr"
+     BUILD_PACKAGE=$3
+     SCALA_VERSION=$4
+ 
++    PIP_FLAG=""
++    if [[ $BUILD_PACKAGE == *"withpip"* ]]; then
++      PIP_FLAG="--pip"
++    fi
++    R_FLAG=""
++    if [[ $BUILD_PACKAGE == *"withr"* ]]; then
++      R_FLAG="--r"
++    fi
++
+     # We increment the Zinc port each time to avoid OOM's and other craziness if multiple builds
+     # share the same Zinc server.
+     ZINC_PORT=$((ZINC_PORT + 1))
+@@ -217,18 +227,13 @@ if [[ "$1" == "package" ]]; then
+     # Get maven home set by MVN
+     MVN_HOME=`$MVN -version 2>&1 | grep 'Maven home' | awk '{print $NF}'`
+ 
++    echo "Creating distribution"
++    ./dev/make-distribution.sh --name $NAME --mvn $MVN_HOME/bin/mvn --tgz \
++      $PIP_FLAG $R_FLAG $FLAGS \
++      -DzincPort=$ZINC_PORT 2>&1 >  ../binary-release-$NAME.log
++    cd ..
+ 
+-    if [ -z "$BUILD_PACKAGE" ]; then
+-      echo "Creating distribution without PIP/R package"
+-      ./dev/make-distribution.sh --name $NAME --mvn $MVN_HOME/bin/mvn --tgz $FLAGS \
+-        -DzincPort=$ZINC_PORT 2>&1 >  ../binary-release-$NAME.log
+-      cd ..
+-    elif [[ "$BUILD_PACKAGE" == "withr" ]]; then
+-      echo "Creating distribution with R package"
+-      ./dev/make-distribution.sh --name $NAME --mvn $MVN_HOME/bin/mvn --tgz --r $FLAGS \
+-        -DzincPort=$ZINC_PORT 2>&1 >  ../binary-release-$NAME.log
+-      cd ..
+-
++    if [[ -n $R_FLAG ]]; then
+       echo "Copying and signing R source package"
+       R_DIST_NAME=SparkR_$SPARK_VERSION.tar.gz
+       cp spark-$SPARK_VERSION-bin-$NAME/R/$R_DIST_NAME .
+@@ -239,12 +244,9 @@ if [[ "$1" == "package" ]]; then
+       echo $GPG_PASSPHRASE | $GPG --passphrase-fd 0 --print-md \
+         SHA512 $R_DIST_NAME > \
+         $R_DIST_NAME.sha512
+-    else
+-      echo "Creating distribution with PIP package"
+-      ./dev/make-distribution.sh --name $NAME --mvn $MVN_HOME/bin/mvn --tgz --pip $FLAGS \
+-        -DzincPort=$ZINC_PORT 2>&1 >  ../binary-release-$NAME.log
+-      cd ..
++    fi
+ 
++    if [[ -n $PIP_FLAG ]]; then
+       echo "Copying and signing python distribution"
+       PYTHON_DIST_NAME=pyspark-$PYSPARK_VERSION.tar.gz
+       cp spark-$SPARK_VERSION-bin-$NAME/python/dist/$PYTHON_DIST_NAME .
+@@ -277,8 +279,10 @@ if [[ "$1" == "package" ]]; then
+   declare -A BINARY_PKGS_ARGS
+   BINARY_PKGS_ARGS["hadoop2.7"]="-Phadoop-2.7 $HIVE_PROFILES"
+   if ! is_dry_run; then
+-    BINARY_PKGS_ARGS["hadoop2.6"]="-Phadoop-2.6 $HIVE_PROFILES"
+     BINARY_PKGS_ARGS["without-hadoop"]="-Phadoop-provided"
++    if [[ $SPARK_VERSION < "3.0." ]]; then
++      BINARY_PKGS_ARGS["hadoop2.6"]="-Phadoop-2.6 $HIVE_PROFILES"
++    fi
+     if [[ $SPARK_VERSION < "2.2." ]]; then
+       BINARY_PKGS_ARGS["hadoop2.4"]="-Phadoop-2.4 $HIVE_PROFILES"
+       BINARY_PKGS_ARGS["hadoop2.3"]="-Phadoop-2.3 $HIVE_PROFILES"
+@@ -286,10 +290,7 @@ if [[ "$1" == "package" ]]; then
+   fi
+ 
+   declare -A BINARY_PKGS_EXTRA
+-  BINARY_PKGS_EXTRA["hadoop2.7"]="withpip"
+-  if ! is_dry_run; then
+-    BINARY_PKGS_EXTRA["hadoop2.6"]="withr"
+-  fi
++  BINARY_PKGS_EXTRA["hadoop2.7"]="withpip,withr"
+ 
+   echo "Packages to build: ${!BINARY_PKGS_ARGS[@]}"
+   for key in ${!BINARY_PKGS_ARGS[@]}; do
+diff --git a/dev/deps/spark-deps-hadoop-2.6 b/dev/deps/spark-deps-hadoop-2.6
+deleted file mode 100644
+index e0e3e0a82e73..000000000000
+--- a/dev/deps/spark-deps-hadoop-2.6
++++ /dev/null
+@@ -1,198 +0,0 @@
+-JavaEWAH-0.3.2.jar
+-RoaringBitmap-0.5.11.jar
+-ST4-4.0.4.jar
+-activation-1.1.1.jar
+-aircompressor-0.10.jar
+-antlr-2.7.7.jar
+-antlr-runtime-3.4.jar
+-antlr4-runtime-4.7.jar
+-aopalliance-1.0.jar
+-aopalliance-repackaged-2.4.0-b34.jar
+-apache-log4j-extras-1.2.17.jar
+-apacheds-i18n-2.0.0-M15.jar
+-apacheds-kerberos-codec-2.0.0-M15.jar
+-api-asn1-api-1.0.0-M20.jar
+-api-util-1.0.0-M20.jar
+-arpack_combined_all-0.1.jar
+-arrow-format-0.10.0.jar
+-arrow-memory-0.10.0.jar
+-arrow-vector-0.10.0.jar
+-automaton-1.11-8.jar
+-avro-1.8.2.jar
+-avro-ipc-1.8.2.jar
+-avro-mapred-1.8.2-hadoop2.jar
+-bonecp-0.8.0.RELEASE.jar
+-breeze-macros_2.11-0.13.2.jar
+-breeze_2.11-0.13.2.jar
+-calcite-avatica-1.2.0-incubating.jar
+-calcite-core-1.2.0-incubating.jar
+-calcite-linq4j-1.2.0-incubating.jar
+-chill-java-0.9.3.jar
+-chill_2.11-0.9.3.jar
+-commons-beanutils-1.7.0.jar
+-commons-beanutils-core-1.8.0.jar
+-commons-cli-1.2.jar
+-commons-codec-1.10.jar
+-commons-collections-3.2.2.jar
+-commons-compiler-3.0.10.jar
+-commons-compress-1.8.1.jar
+-commons-configuration-1.6.jar
+-commons-crypto-1.0.0.jar
+-commons-dbcp-1.4.jar
+-commons-digester-1.8.jar
+-commons-httpclient-3.1.jar
+-commons-io-2.4.jar
+-commons-lang-2.6.jar
+-commons-lang3-3.5.jar
+-commons-logging-1.1.3.jar
+-commons-math3-3.4.1.jar
+-commons-net-3.1.jar
+-commons-pool-1.5.4.jar
+-compress-lzf-1.0.3.jar
+-core-1.1.2.jar
+-curator-client-2.6.0.jar
+-curator-framework-2.6.0.jar
+-curator-recipes-2.6.0.jar
+-datanucleus-api-jdo-3.2.6.jar
+-datanucleus-core-3.2.10.jar
+-datanucleus-rdbms-3.2.9.jar
+-derby-10.12.1.1.jar
+-eigenbase-properties-1.1.5.jar
+-flatbuffers-1.2.0-3f79e055.jar
+-generex-1.0.1.jar
+-gson-2.2.4.jar
+-guava-14.0.1.jar
+-guice-3.0.jar
+-guice-servlet-3.0.jar
+-hadoop-annotations-2.6.5.jar
+-hadoop-auth-2.6.5.jar
+-hadoop-client-2.6.5.jar
+-hadoop-common-2.6.5.jar
+-hadoop-hdfs-2.6.5.jar
+-hadoop-mapreduce-client-app-2.6.5.jar
+-hadoop-mapreduce-client-common-2.6.5.jar
+-hadoop-mapreduce-client-core-2.6.5.jar
+-hadoop-mapreduce-client-jobclient-2.6.5.jar
+-hadoop-mapreduce-client-shuffle-2.6.5.jar
+-hadoop-yarn-api-2.6.5.jar
+-hadoop-yarn-client-2.6.5.jar
+-hadoop-yarn-common-2.6.5.jar
+-hadoop-yarn-server-common-2.6.5.jar
+-hadoop-yarn-server-web-proxy-2.6.5.jar
+-hk2-api-2.4.0-b34.jar
+-hk2-locator-2.4.0-b34.jar
+-hk2-utils-2.4.0-b34.jar
+-hppc-0.7.2.jar
+-htrace-core-3.0.4.jar
+-httpclient-4.5.6.jar
+-httpcore-4.4.10.jar
+-ivy-2.4.0.jar
+-jackson-annotations-2.9.6.jar
+-jackson-core-2.9.6.jar
+-jackson-core-asl-1.9.13.jar
+-jackson-databind-2.9.6.jar
+-jackson-dataformat-yaml-2.9.6.jar
+-jackson-jaxrs-1.9.13.jar
+-jackson-mapper-asl-1.9.13.jar
+-jackson-module-jaxb-annotations-2.9.6.jar
+-jackson-module-paranamer-2.9.6.jar
+-jackson-module-scala_2.11-2.9.6.jar
+-jackson-xc-1.9.13.jar
+-janino-3.0.10.jar
+-javassist-3.18.1-GA.jar
+-javax.annotation-api-1.2.jar
+-javax.inject-1.jar
+-javax.inject-2.4.0-b34.jar
+-javax.servlet-api-3.1.0.jar
+-javax.ws.rs-api-2.0.1.jar
+-javolution-5.5.1.jar
+-jaxb-api-2.2.2.jar
+-jcl-over-slf4j-1.7.16.jar
+-jdo-api-3.0.1.jar
+-jersey-client-2.22.2.jar
+-jersey-common-2.22.2.jar
+-jersey-container-servlet-2.22.2.jar
+-jersey-container-servlet-core-2.22.2.jar
+-jersey-guava-2.22.2.jar
+-jersey-media-jaxb-2.22.2.jar
+-jersey-server-2.22.2.jar
+-jetty-6.1.26.jar
+-jetty-util-6.1.26.jar
+-jline-2.14.6.jar
+-joda-time-2.9.3.jar
+-jodd-core-3.5.2.jar
+-jpam-1.1.jar
+-json4s-ast_2.11-3.5.3.jar
+-json4s-core_2.11-3.5.3.jar
+-json4s-jackson_2.11-3.5.3.jar
+-json4s-scalap_2.11-3.5.3.jar
+-jsr305-1.3.9.jar
+-jta-1.1.jar
+-jtransforms-2.4.0.jar
+-jul-to-slf4j-1.7.16.jar
+-kryo-shaded-4.0.2.jar
+-kubernetes-client-3.0.0.jar
+-kubernetes-model-2.0.0.jar
+-leveldbjni-all-1.8.jar
+-libfb303-0.9.3.jar
+-libthrift-0.9.3.jar
+-log4j-1.2.17.jar
+-logging-interceptor-3.8.1.jar
+-lz4-java-1.5.0.jar
+-machinist_2.11-0.6.1.jar
+-macro-compat_2.11-1.1.1.jar
+-mesos-1.4.0-shaded-protobuf.jar
+-metrics-core-3.1.5.jar
+-metrics-graphite-3.1.5.jar
+-metrics-json-3.1.5.jar
+-metrics-jvm-3.1.5.jar
+-minlog-1.3.0.jar
+-netty-3.9.9.Final.jar
+-netty-all-4.1.17.Final.jar
+-objenesis-2.5.1.jar
+-okhttp-3.8.1.jar
+-okio-1.13.0.jar
+-opencsv-2.3.jar
+-orc-core-1.5.3-nohive.jar
+-orc-mapreduce-1.5.3-nohive.jar
+-orc-shims-1.5.3.jar
+-oro-2.0.8.jar
+-osgi-resource-locator-1.0.1.jar
+-paranamer-2.8.jar
+-parquet-column-1.10.0.jar
+-parquet-common-1.10.0.jar
+-parquet-encoding-1.10.0.jar
+-parquet-format-2.4.0.jar
+-parquet-hadoop-1.10.0.jar
+-parquet-hadoop-bundle-1.6.0.jar
+-parquet-jackson-1.10.0.jar
+-protobuf-java-2.5.0.jar
+-py4j-0.10.7.jar
+-pyrolite-4.13.jar
+-scala-compiler-2.11.12.jar
+-scala-library-2.11.12.jar
+-scala-parser-combinators_2.11-1.1.0.jar
+-scala-reflect-2.11.12.jar
+-scala-xml_2.11-1.0.5.jar
+-shapeless_2.11-2.3.2.jar
+-slf4j-api-1.7.16.jar
+-slf4j-log4j12-1.7.16.jar
+-snakeyaml-1.18.jar
+-snappy-0.2.jar
+-snappy-java-1.1.7.1.jar
+-spire-macros_2.11-0.13.0.jar
+-spire_2.11-0.13.0.jar
+-stax-api-1.0-2.jar
+-stax-api-1.0.1.jar
+-stream-2.7.0.jar
+-stringtemplate-3.2.1.jar
+-super-csv-2.2.0.jar
+-univocity-parsers-2.7.3.jar
+-validation-api-1.1.0.Final.jar
+-xbean-asm6-shaded-4.8.jar
+-xercesImpl-2.9.1.jar
+-xmlenc-0.52.jar
+-xz-1.5.jar
+-zjsonpatch-0.3.0.jar
+-zookeeper-3.4.6.jar
+-zstd-jni-1.3.2-2.jar
+diff --git a/dev/run-tests.py b/dev/run-tests.py
+index f534637b80d6..271360b6048a 100755
+--- a/dev/run-tests.py
++++ b/dev/run-tests.py
+@@ -305,7 +305,6 @@ def get_hadoop_profiles(hadoop_version):
+     """
+ 
+     sbt_maven_hadoop_profiles = {
+-        "hadoop2.6": ["-Phadoop-2.6"],
+         "hadoop2.7": ["-Phadoop-2.7"],
+     }
+ 
+@@ -369,15 +368,7 @@ def build_spark_assembly_sbt(hadoop_version, checkstyle=False):
+     if checkstyle:
+         run_java_style_checks()
+ 
+-    # Note that we skip Unidoc build only if Hadoop 2.6 is explicitly set in this SBT build.
+-    # Due to a different dependency resolution in SBT & Unidoc by an unknown reason, the
+-    # documentation build fails on a specific machine & environment in Jenkins but it was unable
+-    # to reproduce. Please see SPARK-20343. This is a band-aid fix that should be removed in
+-    # the future.
+-    is_hadoop_version_2_6 = os.environ.get("AMPLAB_JENKINS_BUILD_PROFILE") == "hadoop2.6"
+-    if not is_hadoop_version_2_6:
+-        # Make sure that Java and Scala API documentation can be generated
+-        build_spark_unidoc_sbt(hadoop_version)
++    build_spark_unidoc_sbt(hadoop_version)
+ 
+ 
+ def build_apache_spark(build_tool, hadoop_version):
+@@ -528,14 +519,14 @@ def main():
+         # if we're on the Amplab Jenkins build servers setup variables
+         # to reflect the environment settings
+         build_tool = os.environ.get("AMPLAB_JENKINS_BUILD_TOOL", "sbt")
+-        hadoop_version = os.environ.get("AMPLAB_JENKINS_BUILD_PROFILE", "hadoop2.6")
++        hadoop_version = os.environ.get("AMPLAB_JENKINS_BUILD_PROFILE", "hadoop2.7")
+         test_env = "amplab_jenkins"
+         # add path for Python3 in Jenkins if we're calling from a Jenkins machine
+         os.environ["PATH"] = "/home/anaconda/envs/py3k/bin:" + os.environ.get("PATH")
+     else:
+         # else we're running locally and can use local settings
+         build_tool = "sbt"
+-        hadoop_version = os.environ.get("HADOOP_PROFILE", "hadoop2.6")
++        hadoop_version = os.environ.get("HADOOP_PROFILE", "hadoop2.7")
+         test_env = "local"
+ 
+     print("[info] Using build tool", build_tool, "with Hadoop profile", hadoop_version,
+diff --git a/dev/test-dependencies.sh b/dev/test-dependencies.sh
+index 2fbd6b5e98f7..a3627c9b9b0a 100755
+--- a/dev/test-dependencies.sh
++++ b/dev/test-dependencies.sh
+@@ -32,7 +32,6 @@ export LC_ALL=C
+ HADOOP2_MODULE_PROFILES="-Phive-thriftserver -Pmesos -Pkafka-0-8 -Pkubernetes -Pyarn -Pflume -Phive"
+ MVN="build/mvn"
+ HADOOP_PROFILES=(
+-    hadoop-2.6
+     hadoop-2.7
+     hadoop-3.1
+ )
+diff --git a/docs/building-spark.md b/docs/building-spark.md
+index 1501f0bb8454..b9e171547c3c 100644
+--- a/docs/building-spark.md
++++ b/docs/building-spark.md
+@@ -49,25 +49,20 @@ To create a Spark distribution like those distributed by the
+ to be runnable, use `./dev/make-distribution.sh` in the project root directory. It can be configured
+ with Maven profile settings and so on like the direct Maven build. Example:
+ 
+-    ./dev/make-distribution.sh --name custom-spark --pip --r --tgz -Psparkr -Phadoop-2.7 -Phive -Phive-thriftserver -Pmesos -Pyarn -Pkubernetes
++    ./dev/make-distribution.sh --name custom-spark --pip --r --tgz -Psparkr -Phive -Phive-thriftserver -Pmesos -Pyarn -Pkubernetes
+ 
+ This will build Spark distribution along with Python pip and R packages. For more information on usage, run `./dev/make-distribution.sh --help`
+ 
+ ## Specifying the Hadoop Version and Enabling YARN
+ 
+ You can specify the exact version of Hadoop to compile against through the `hadoop.version` property. 
+-If unset, Spark will build against Hadoop 2.6.X by default.
+ 
+ You can enable the `yarn` profile and optionally set the `yarn.version` property if it is different 
+ from `hadoop.version`.
+ 
+-Examples:
++Example:
+ 
+-    # Apache Hadoop 2.6.X
+-    ./build/mvn -Pyarn -DskipTests clean package
+-
+-    # Apache Hadoop 2.7.X and later
+-    ./build/mvn -Pyarn -Phadoop-2.7 -Dhadoop.version=2.7.3 -DskipTests clean package
++    ./build/mvn -Pyarn -Dhadoop.version=2.8.5 -DskipTests clean package
+ 
+ ## Building With Hive and JDBC Support
+ 
+diff --git a/docs/index.md b/docs/index.md
+index 40f628b794c0..d269f54c7343 100644
+--- a/docs/index.md
++++ b/docs/index.md
+@@ -30,9 +30,6 @@ Spark runs on Java 8+, Python 2.7+/3.4+ and R 3.1+. For the Scala API, Spark {{s
+ uses Scala {{site.SCALA_BINARY_VERSION}}. You will need to use a compatible Scala version
+ ({{site.SCALA_BINARY_VERSION}}.x).
+ 
+-Note that support for Java 7, Python 2.6 and old Hadoop versions before 2.6.5 were removed as of Spark 2.2.0.
+-Support for Scala 2.10 was removed as of 2.3.0.
+-
+ # Running the Examples and Shell
+ 
+ Spark comes with several sample programs.  Scala, Java, Python and R examples are in the
+diff --git a/docs/running-on-yarn.md b/docs/running-on-yarn.md
+index 687f9e46c328..bdf7b99966e4 100644
+--- a/docs/running-on-yarn.md
++++ b/docs/running-on-yarn.md
+@@ -396,8 +396,7 @@ To use a custom metrics.properties for the application master and executors, upd
+   and those log files will be aggregated in a rolling fashion.
+   This will be used with YARN's rolling log aggregation, to enable this feature in YARN side
+   <code>yarn.nodemanager.log-aggregation.roll-monitoring-interval-seconds</code> should be
+-  configured in yarn-site.xml.
+-  This feature can only be used with Hadoop 2.6.4+. The Spark log4j appender needs be changed to use
++  configured in yarn-site.xml. The Spark log4j appender needs be changed to use
+   FileAppender or another appender that can handle the files being removed while it is running. Based
+   on the file name configured in the log4j configuration (like spark.log), the user should set the
+   regex (spark*) to include all the log files that need to be aggregated.
+diff --git a/hadoop-cloud/pom.xml b/hadoop-cloud/pom.xml
+index d48162007e67..3182ab15db5f 100644
+--- a/hadoop-cloud/pom.xml
++++ b/hadoop-cloud/pom.xml
+@@ -166,45 +166,34 @@
+       <artifactId>httpcore</artifactId>
+       <scope>${hadoop.deps.scope}</scope>
+     </dependency>
++    <dependency>
++      <groupId>org.apache.hadoop</groupId>
++      <artifactId>hadoop-azure</artifactId>
++      <version>${hadoop.version}</version>
++      <scope>${hadoop.deps.scope}</scope>
++      <exclusions>
++        <exclusion>
++          <groupId>org.apache.hadoop</groupId>
++          <artifactId>hadoop-common</artifactId>
++        </exclusion>
++        <exclusion>
++          <groupId>org.codehaus.jackson</groupId>
++          <artifactId>jackson-mapper-asl</artifactId>
++        </exclusion>
++        <exclusion>
++          <groupId>com.fasterxml.jackson.core</groupId>
++          <artifactId>jackson-core</artifactId>
++        </exclusion>
++        <exclusion>
++          <groupId>com.google.guava</groupId>
++          <artifactId>guava</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
+   </dependencies>
+ 
+   <profiles>
+ 
+-    <profile>
+-      <id>hadoop-2.7</id>
+-      <!-- 2.7+ adds the azure Jar to the set of dependencies -->
+-      <dependencies>
+-
+-        <!--
+-        Hadoop WASB client only arrived in Hadoop 2.7
+-        -->
+-        <dependency>
+-          <groupId>org.apache.hadoop</groupId>
+-          <artifactId>hadoop-azure</artifactId>
+-          <version>${hadoop.version}</version>
+-          <scope>${hadoop.deps.scope}</scope>
+-          <exclusions>
+-            <exclusion>
+-              <groupId>org.apache.hadoop</groupId>
+-              <artifactId>hadoop-common</artifactId>
+-            </exclusion>
+-            <exclusion>
+-              <groupId>org.codehaus.jackson</groupId>
+-              <artifactId>jackson-mapper-asl</artifactId>
+-            </exclusion>
+-            <exclusion>
+-              <groupId>com.fasterxml.jackson.core</groupId>
+-              <artifactId>jackson-core</artifactId>
+-            </exclusion>
+-            <exclusion>
+-              <groupId>com.google.guava</groupId>
+-              <artifactId>guava</artifactId>
+-            </exclusion>
+-          </exclusions>
+-        </dependency>
+-      </dependencies>
+-    </profile>
+-
+     <!--
+      Hadoop 3 simplifies the classpath, and adds a new committer base class which
+      enables store-specific committers.
+diff --git a/pom.xml b/pom.xml
+index 98da38f04553..59ba317aa8c9 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -118,12 +118,12 @@
+     <sbt.project.name>spark</sbt.project.name>
+     <slf4j.version>1.7.16</slf4j.version>
+     <log4j.version>1.2.17</log4j.version>
+-    <hadoop.version>2.6.5</hadoop.version>
++    <hadoop.version>2.7.3</hadoop.version>
+     <protobuf.version>2.5.0</protobuf.version>
+     <yarn.version>${hadoop.version}</yarn.version>
+     <flume.version>1.6.0</flume.version>
+     <zookeeper.version>3.4.6</zookeeper.version>
+-    <curator.version>2.6.0</curator.version>
++    <curator.version>2.7.1</curator.version>
+     <hive.group>org.spark-project.hive</hive.group>
+     <!-- Version used in Maven Hive dependency -->
+     <hive.version>1.2.1.spark2</hive.version>
+@@ -2674,17 +2674,9 @@
+     http://hadoop.apache.org/docs/ra.b.c/hadoop-project-dist/hadoop-common/dependency-analysis.html
+     -->
+ 
+-    <profile>
+-      <id>hadoop-2.6</id>
+-      <!-- Default hadoop profile. Uses global properties. -->
+-    </profile>
+-
+     <profile>
+       <id>hadoop-2.7</id>
+-      <properties>
+-        <hadoop.version>2.7.3</hadoop.version>
+-        <curator.version>2.7.1</curator.version>
+-      </properties>
++      <!-- Default hadoop profile. Uses global properties. -->
+     </profile>
+ 
+     <profile>
+
+diff --git a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/Client.scala b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/Client.scala
+index 4a85898ef880..01bdebc000b9 100644
+--- a/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/Client.scala
++++ b/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/Client.scala
+@@ -273,19 +273,10 @@ private[spark] class Client(
+     sparkConf.get(ROLLED_LOG_INCLUDE_PATTERN).foreach { includePattern =>
+       try {
+         val logAggregationContext = Records.newRecord(classOf[LogAggregationContext])
+-
+-        // These two methods were added in Hadoop 2.6.4, so we still need to use reflection to
+-        // avoid compile error when building against Hadoop 2.6.0 ~ 2.6.3.
+-        val setRolledLogsIncludePatternMethod =
+-          logAggregationContext.getClass.getMethod("setRolledLogsIncludePattern", classOf[String])
+-        setRolledLogsIncludePatternMethod.invoke(logAggregationContext, includePattern)
+-
++        logAggregationContext.setRolledLogsIncludePattern(includePattern)
+         sparkConf.get(ROLLED_LOG_EXCLUDE_PATTERN).foreach { excludePattern =>
+-          val setRolledLogsExcludePatternMethod =
+-            logAggregationContext.getClass.getMethod("setRolledLogsExcludePattern", classOf[String])
+-          setRolledLogsExcludePatternMethod.invoke(logAggregationContext, excludePattern)
++          logAggregationContext.setRolledLogsExcludePattern(excludePattern)
+         }
+-
+         appContext.setLogAggregationContext(logAggregationContext)
+       } catch {
+         case NonFatal(e) =>
+diff --git a/sql/hive/src/main/scala/org/apache/spark/sql/hive/TableReader.scala b/sql/hive/src/main/scala/org/apache/spark/sql/hive/TableReader.scala
+index 7d5738994757..9443fbb4330a 100644
+--- a/sql/hive/src/main/scala/org/apache/spark/sql/hive/TableReader.scala
++++ b/sql/hive/src/main/scala/org/apache/spark/sql/hive/TableReader.scala
+@@ -71,7 +71,7 @@ class HadoopTableReader(
+ 
+   // Hadoop honors "mapreduce.job.maps" as hint,
+   // but will ignore when mapreduce.jobtracker.address is "local".
+-  // https://hadoop.apache.org/docs/r2.6.5/hadoop-mapreduce-client/hadoop-mapreduce-client-core/
++  // https://hadoop.apache.org/docs/r2.7.6/hadoop-mapreduce-client/hadoop-mapreduce-client-core/
+   // mapred-default.xml
+   //
+   // In order keep consistency with Hive, we will let it be 0 in local mode also.
+diff --git a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
+index 6a90c44a2633..31899370454b 100644
+--- a/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
++++ b/sql/hive/src/main/scala/org/apache/spark/sql/hive/client/IsolatedClientLoader.scala
+@@ -53,7 +53,7 @@ private[hive] object IsolatedClientLoader extends Logging {
+       sharesHadoopClasses: Boolean = true): IsolatedClientLoader = synchronized {
+     val resolvedVersion = hiveVersion(hiveMetastoreVersion)
+     // We will first try to share Hadoop classes. If we cannot resolve the Hadoop artifact
+-    // with the given version, we will use Hadoop 2.6 and then will not share Hadoop classes.
++    // with the given version, we will use Hadoop 2.7 and then will not share Hadoop classes.
+     var _sharesHadoopClasses = sharesHadoopClasses
+     val files = if (resolvedVersions.contains((resolvedVersion, hadoopVersion))) {
+       resolvedVersions((resolvedVersion, hadoopVersion))
+@@ -65,13 +65,14 @@ private[hive] object IsolatedClientLoader extends Logging {
+           case e: RuntimeException if e.getMessage.contains("hadoop") =>
+             // If the error message contains hadoop, it is probably because the hadoop
+             // version cannot be resolved.
+-            logWarning(s"Failed to resolve Hadoop artifacts for the version $hadoopVersion. " +
+-              s"We will change the hadoop version from $hadoopVersion to 2.6.0 and try again. " +
+-              "Hadoop classes will not be shared between Spark and Hive metastore client. " +
++            val fallbackVersion = "2.7.3"
++            logWarning(s"Failed to resolve Hadoop artifacts for the version $hadoopVersion. We " +
++              s"will change the hadoop version from $hadoopVersion to $fallbackVersion and try " +
++              "again. Hadoop classes will not be shared between Spark and Hive metastore client. " +
+               "It is recommended to set jars used by Hive metastore client through " +
+               "spark.sql.hive.metastore.jars in the production environment.")
+             _sharesHadoopClasses = false
+-            (downloadVersion(resolvedVersion, "2.6.5", ivyPath), "2.6.5")
++            (downloadVersion(resolvedVersion, fallbackVersion, ivyPath), fallbackVersion)
+         }
+       resolvedVersions.put((resolvedVersion, actualHadoopVersion), downloadedFiles)
+       resolvedVersions((resolvedVersion, actualHadoopVersion))

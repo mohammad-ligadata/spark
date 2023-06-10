@@ -21,18 +21,124 @@ index 30ded13410f7..817abebd72ac 100644
        if (viewQueryColumnNames.nonEmpty) {
          map.put("View Query Output Columns", viewQueryColumnNames.mkString("[", ", ", "]"))
 diff --git a/sql/core/src/main/scala/org/apache/spark/sql/execution/command/views.scala b/sql/core/src/main/scala/org/apache/spark/sql/execution/command/views.scala
-index 5172f32ec7b9..cd34dfafd132 100644
+index 5d9f2c3336..ca78c7d4ac 100644
 --- a/sql/core/src/main/scala/org/apache/spark/sql/execution/command/views.scala
 +++ b/sql/core/src/main/scala/org/apache/spark/sql/execution/command/views.scala
-@@ -242,6 +242,7 @@ case class CreateViewCommand(
+@@ -26,7 +26,6 @@ import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable
+ import org.apache.spark.sql.catalyst.expressions.{Alias, SubqueryExpression}
+ import org.apache.spark.sql.catalyst.plans.QueryPlan
+ import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project, View}
+-import org.apache.spark.sql.internal.StaticSQLConf
+ import org.apache.spark.sql.types.MetadataBuilder
+ import org.apache.spark.sql.util.SchemaUtils
+ 
+@@ -86,15 +85,15 @@ object PersistedView extends ViewType
+  * @param viewType the expected view type to be created with this command.
+  */
+ case class CreateViewCommand(
+-    name: TableIdentifier,
+-    userSpecifiedColumns: Seq[(String, Option[String])],
+-    comment: Option[String],
+-    properties: Map[String, String],
+-    originalText: Option[String],
+-    child: LogicalPlan,
+-    allowExisting: Boolean,
+-    replace: Boolean,
+-    viewType: ViewType)
++                              name: TableIdentifier,
++                              userSpecifiedColumns: Seq[(String, Option[String])],
++                              comment: Option[String],
++                              properties: Map[String, String],
++                              originalText: Option[String],
++                              child: LogicalPlan,
++                              allowExisting: Boolean,
++                              replace: Boolean,
++                              viewType: ViewType)
+   extends RunnableCommand {
+ 
+   import ViewHelper._
+@@ -131,7 +130,7 @@ case class CreateViewCommand(
+     val analyzedPlan = qe.analyzed
+ 
+     if (userSpecifiedColumns.nonEmpty &&
+-        userSpecifiedColumns.length != analyzedPlan.output.length) {
++      userSpecifiedColumns.length != analyzedPlan.output.length) {
+       throw new AnalysisException(s"The number of columns produced by the SELECT clause " +
+         s"(num: `${analyzedPlan.output.length}`) does not match the number of column names " +
+         s"specified by CREATE VIEW (num: `${userSpecifiedColumns.length}`).")
+@@ -143,19 +142,9 @@ case class CreateViewCommand(
+ 
+     val catalog = sparkSession.sessionState.catalog
+     if (viewType == LocalTempView) {
+-      if (replace && catalog.getTempView(name.table).isDefined) {
+-        logDebug(s"Try to uncache ${name.quotedString} before replacing.")
+-        CommandUtils.uncacheTableOrView(sparkSession, name.quotedString)
+-      }
+       val aliasedPlan = aliasPlan(sparkSession, analyzedPlan)
+       catalog.createTempView(name.table, aliasedPlan, overrideIfExists = replace)
+     } else if (viewType == GlobalTempView) {
+-      if (replace && catalog.getGlobalTempView(name.table).isDefined) {
+-        val db = sparkSession.sessionState.conf.getConf(StaticSQLConf.GLOBAL_TEMP_DATABASE)
+-        val globalTempView = TableIdentifier(name.table, Option(db))
+-        logDebug(s"Try to uncache ${globalTempView.quotedString} before replacing.")
+-        CommandUtils.uncacheTableOrView(sparkSession, globalTempView.quotedString)
+-      }
+       val aliasedPlan = aliasPlan(sparkSession, analyzedPlan)
+       catalog.createGlobalTempView(name.table, aliasedPlan, overrideIfExists = replace)
+     } else if (catalog.tableExists(name)) {
+@@ -170,10 +159,6 @@ case class CreateViewCommand(
+         val viewIdent = tableMetadata.identifier
+         checkCyclicViewReference(analyzedPlan, Seq(viewIdent), viewIdent)
+ 
+-        // uncache the cached data before replacing an exists view
+-        logDebug(s"Try to uncache ${viewIdent.quotedString} before replacing.")
+-        CommandUtils.uncacheTableOrView(sparkSession, viewIdent.quotedString)
+-
+         // Handles `CREATE OR REPLACE VIEW v0 AS SELECT ...`
+         // Nothing we need to retain from the old view, so just drop and create a new one
+         catalog.dropTable(viewIdent, ignoreIfNotExists = false, purge = false)
+@@ -248,16 +233,16 @@ case class CreateViewCommand(
+       throw new AnalysisException(
+         "It is not allowed to create a persisted view from the Dataset API")
+     }
+-    val aliasedSchema = aliasPlan(session, analyzedPlan).schema
+-    val newProperties = generateViewProperties(
+-      properties, session, analyzedPlan, aliasedSchema.fieldNames)
++
++    val newProperties = generateViewProperties(properties, session, analyzedPlan)
+ 
+     CatalogTable(
+       identifier = name,
+       tableType = CatalogTableType.VIEW,
        storage = CatalogStorageFormat.empty,
-       schema = aliasPlan(session, analyzedPlan).schema,
+-      schema = aliasedSchema,
++      schema = aliasPlan(session, analyzedPlan).schema,
        properties = newProperties,
 +      viewOriginalText = originalText,
        viewText = originalText,
        comment = comment
      )
-@@ -299,6 +300,7 @@ case class AlterViewAsCommand(
+@@ -277,9 +262,9 @@ case class CreateViewCommand(
+  *              schema.
+  */
+ case class AlterViewAsCommand(
+-    name: TableIdentifier,
+-    originalText: String,
+-    query: LogicalPlan) extends RunnableCommand {
++                               name: TableIdentifier,
++                               originalText: String,
++                               query: LogicalPlan) extends RunnableCommand {
+ 
+   import ViewHelper._
+ 
+@@ -310,12 +295,12 @@ case class AlterViewAsCommand(
+     val viewIdent = viewMeta.identifier
+     checkCyclicViewReference(analyzedPlan, Seq(viewIdent), viewIdent)
+ 
+-    val newProperties = generateViewProperties(
+-      viewMeta.properties, session, analyzedPlan, analyzedPlan.schema.fieldNames)
++    val newProperties = generateViewProperties(viewMeta.properties, session, analyzedPlan)
+ 
      val updatedViewMeta = viewMeta.copy(
        schema = analyzedPlan.schema,
        properties = newProperties,
@@ -40,6 +146,48 @@ index 5172f32ec7b9..cd34dfafd132 100644
        viewText = Some(originalText))
  
      session.sessionState.catalog.alterTable(updatedViewMeta)
+@@ -370,17 +355,15 @@ object ViewHelper {
+    * @return new view properties including view default database and query column names properties.
+    */
+   def generateViewProperties(
+-      properties: Map[String, String],
+-      session: SparkSession,
+-      analyzedPlan: LogicalPlan,
+-      fieldNames: Array[String]): Map[String, String] = {
+-    // for createViewCommand queryOutput may be different from fieldNames
++                              properties: Map[String, String],
++                              session: SparkSession,
++                              analyzedPlan: LogicalPlan): Map[String, String] = {
+     val queryOutput = analyzedPlan.schema.fieldNames
+ 
+     // Generate the query column names, throw an AnalysisException if there exists duplicate column
+     // names.
+     SchemaUtils.checkColumnNameDuplication(
+-      fieldNames, "in the view definition", session.sessionState.conf.resolver)
++      queryOutput, "in the view definition", session.sessionState.conf.resolver)
+ 
+     // Generate the view default database name.
+     val viewDefaultDatabase = session.sessionState.catalog.getCurrentDatabase
+@@ -407,9 +390,9 @@ object ViewHelper {
+    *                  `desc.identifier`.
+    */
+   def checkCyclicViewReference(
+-      plan: LogicalPlan,
+-      path: Seq[TableIdentifier],
+-      viewIdent: TableIdentifier): Unit = {
++                                plan: LogicalPlan,
++                                path: Seq[TableIdentifier],
++                                viewIdent: TableIdentifier): Unit = {
+     plan match {
+       case v: View =>
+         val ident = v.desc.identifier
+@@ -437,4 +420,4 @@ object ViewHelper {
+       }
+     }
+   }
+-}
++}
+\ No newline at end of file
 diff --git a/sql/core/src/test/resources/sql-tests/results/describe.sql.out b/sql/core/src/test/resources/sql-tests/results/describe.sql.out
 index 79390cb42444..9c4b70d1b1ab 100644
 --- a/sql/core/src/test/resources/sql-tests/results/describe.sql.out

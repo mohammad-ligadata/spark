@@ -187,7 +187,8 @@ index 5d9f2c3336..ca78c7d4ac 100644
    }
 -}
 +}
-\ No newline at end of file
++
+
 diff --git a/sql/core/src/test/resources/sql-tests/results/describe.sql.out b/sql/core/src/test/resources/sql-tests/results/describe.sql.out
 index 79390cb42444..9c4b70d1b1ab 100644
 --- a/sql/core/src/test/resources/sql-tests/results/describe.sql.out
